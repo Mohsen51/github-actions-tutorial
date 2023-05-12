@@ -3,6 +3,7 @@ name: main-worklfow
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  KUBECTL_VERSION: "1.14.10"
 
 on:
   push:
@@ -61,3 +62,34 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Deploy to Kubernetes.
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs:
+      - run-tests
+      - build-and-release
+    steps:
+      # Check out source code.
+      - name: Check out source code
+        uses: actions/checkout@v2
+
+        # Set up kubectl.
+      - name: Set up kubectl
+        run: |-
+          curl -sfLo kubectl https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      # Configure kubectl.
+      - name: Configure kubectl
+        run: echo ${{ secrets.KUBECONFIG }} | base64 --decode > kubeconfig.yml
+
+        # Deploy to Kubernetes.
+      - name: Deploy to Kubernetes
+        run: kubectl --kubeconfig kubeconfig.yml create deployment foobar --image=ghcr.io/${{ github.repository }}
+
+        # Validate deployment.
+      - name: Validate deployment
+        run: kubectl --kubeconfig kubeconfig.yml rollout status --timeout 120s deployment/foobar
